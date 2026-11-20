@@ -1,0 +1,46 @@
+name: Bug report
+description: Something does not work as documented or gives a wrong result.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If the problem might be in your inputs, run
+        `python scripts/validate_inputs.py config/<case>.yaml` first and attach its output.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened
+      description: Describe the problem and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The configuration file (without private data) and the exact command you ran.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: error
+    attributes:
+      label: Error message or output
+      description: The full text, not a screenshot.
+      render: shell
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: Operating system, Python, pandapower and Gurobi.
+      placeholder: "Windows 11, Python 3.9, pandapower 2.14.6, gurobipy 11.0.1"
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before sending
+      options:
+        - label: I ran the input validator and it reports no errors, or I attached its output.
+        - label: The files I attached contain no data that I am not allowed to share.

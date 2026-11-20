@@ -1,0 +1,19 @@
+# Editor settings shared by everyone who works on the project.
+# Line endings are LF, as in .gitattributes. Trailing whitespace is deliberately not set, to avoid rewriting files that already exist.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+
+[*.py]
+indent_style = space
+indent_size = 4
+
+[*.{yml,yaml,json}]
+indent_style = space
+indent_size = 2
+
+[*.md]
+indent_style = space
+indent_size = 2

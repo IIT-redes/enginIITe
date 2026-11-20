@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+
+# Written by the runs, in any workspace
+data_out/
+market_inputs/
+
+# SB72 files that are not part of the example
+examples/sb72/data_in/SB72/network/*.before_normfix
+examples/sb72/data_in/SB72/network/network_SB_1MV_COMM_*.xlsx
+
+# Solver and editor artefacts
+*.lp
+*.mps
+*.rlp
+.idea/
+.vscode/
+
+# Documentation build
+docs/_build/

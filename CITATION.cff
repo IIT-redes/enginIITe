@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata of this file."
+type: software
+title: "enginIITe"
+abstract: "Local flexibility market simulation platform. A distribution system operator buys flexibility from local providers to solve voltage and congestion problems at the lowest cost, with the power flow solved by PandaPower and the market cleared with Gurobi."
+version: "0.1.0"
+# [Pending: authors, date-released, repository-code, license and the reference paper.]
+authors:
+  - name: "[Pending]"

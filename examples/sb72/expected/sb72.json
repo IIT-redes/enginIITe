@@ -1,0 +1,26 @@
+{
+  "PQ_VL01_F01": {
+    "active_power_cost_eur": 1025.94,
+    "active_power_mw": 26.653,
+    "objective_eur": 1195361.476,
+    "reactive_power_cost_eur": 101.312,
+    "reactive_power_mvar": 52.21,
+    "total_cost_eur": 1195361.476050847
+  },
+  "PQ_VL01_F02": {
+    "active_power_cost_eur": 1407.511,
+    "active_power_mw": 36.766,
+    "objective_eur": 133102.41,
+    "reactive_power_cost_eur": 163.669,
+    "reactive_power_mvar": 84.372,
+    "total_cost_eur": 133102.4103181548
+  },
+  "PQ_VL01_F03": {
+    "active_power_cost_eur": 1233.727,
+    "active_power_mw": 32.253,
+    "objective_eur": 31535.156,
+    "reactive_power_cost_eur": 193.185,
+    "reactive_power_mvar": 99.929,
+    "total_cost_eur": 31535.15592329386
+  }
+}

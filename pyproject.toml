@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "enginiite"
+version = "0.1.0"
+description = "Local flexibility market simulation platform: AC power flow with PandaPower and market optimisation with Gurobi."
+readme = "README.md"
+requires-python = ">=3.9,<3.12"
+keywords = ["flexibility markets", "distribution networks", "DSO", "power flow", "optimisation"]
+classifiers = [
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering",
+]
+# Pending: authors, license and [project.urls], to be added once they are confirmed.
+dependencies = [
+    "pandapower>=2.14,<3",
+    # Tested with 11.0.1 and 12.0.3. Needs a Gurobi licence.
+    "gurobipy>=11.0,<13",
+    "numpy>=1.26,<2",
+    "pandas>=2.2,<3",
+    "scipy>=1.13",
+    "openpyxl>=3.1",
+    "pyyaml>=6.0",
+    "tqdm>=4.66",
+    "matplotlib>=3.8",
+    "plotly>=5.22",
+]
+
+[project.scripts]
+enginiite = "enginiite.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+enginiite = ["**/*.yaml"]

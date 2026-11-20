@@ -1,0 +1,592 @@
+# =========================================================================================================
+# enginIITe configuration file - CIGRE MV benchmark network, one day of consecutive hours
+# =========================================================================================================
+# What this file is: every setting of one enginIITe run, which clears a local flexibility market
+#   on one network for a window of time steps and reports the results in data_out.
+# How to run it: from the root of the repository type   enginiite run examples/cigre/config/config_CIGRE.yaml
+# Abbreviations: AC = alternating current (here: the full nonlinear power flow); CM = congestion
+#   management; VC = voltage control; DSO = distribution system operator; FSP = flexibility service
+#   provider; MIP = mixed-integer programme; MV / LV = medium / low voltage; pu = per unit; KPI = key
+#   performance indicator; VOLL = value of lost load; HVM / HCM = voltage / congestion sensitivity
+#   matrices; PV = photovoltaic.
+#   Case terms: CIGRE = International Council on Large Electric Systems; DER = distributed energy
+#   resources; CHP = combined heat and power.
+# How it is organised: ten numbered sections, in the same order in every configuration file:
+#   1 case identification and tags                 7 sensitivity calculation
+#   2 flexibility market and bids                  8 corrective iterations and post-clearing AC
+#   3 network and input files                        power-flow validation
+#   4 simulation window and snapshots              9 solver
+#   5 operational limits and optimisation targets 10 outputs and visualization
+#   6 not served flexibility penalties and prices
+#   Above every parameter: what it does, 'Values:' (allowed values and unit) and 'Default if
+#   omitted:' (what the code uses when the key is missing) or 'Required.' (the run stops without
+#   it). 'Tip:' lines give advice. Text after # is a comment; the platform ignores it.
+#
+# About this case:
+#   Network: CIGRE MV benchmark network with all DER (data_in/CIGRE), as built by pandapower
+#   create_cigre_network_mv(with_der='all'): 20 kV, two feeders, 14 MV buses supplied from one 110 kV bus
+#   through two 25 MVA transformers (Trafo 0-1 supplies feeder 1, buses 1-11; Trafo 0-12 supplies
+#   feeder 2, buses 12-14). External grid set-point 1.03 pu.
+#   Elements: 18 loads (10 residential, 8 commercial), 13 static generators (8 PV, 1 wind turbine,
+#   1 CHP, 3 fuel cells) and 2 batteries (0.6 and 0.2 MVA, idle in the profiles).
+#   Time steps: the 24 rows of the profile workbooks are the consecutive hours of one day (h0 ... h23).
+#   Load profiles are per-unit multipliers (residential, commercial); generator profiles are in MW.
+#   Load scaling: with scen_factor_load 1 the day has no violation of the VL01 operational limits
+#   (lowest MV voltage 0.959 pu, highest transformer loading 84 %), so the market has nothing to clear.
+#   scen_factor_load 1.2 (20 % load growth) gives under-voltages on feeder 1 in hours 8, 9 and 17-20
+#   (lowest 0.938 pu at hour 19) and overloads Trafo 0-1 in hours 18 and 19 (up to 103 %).
+#   FSPs: 33, one per element: 18 loads (type A), 13 generators (type B; PV and wind offer only
+#   curtailment, CHP and fuel cells both directions) and 2 batteries (type C). Bid prices for active
+#   power: loads 45, generators 40, batteries 35 EUR/MWh; for reactive power 2.25, 2.00 and 1.75 EUR/MVArh.
+#   Bid depth F0k: loads and generators offer k x 5 % of their power in each hour (bidding strategy
+#   initial_value), batteries k x 5 % of their rating (mva_value).
+#   FSP files for the products P, Q and PQ are in data_in/CIGRE/fsp_files.
+# =========================================================================================================
+
+# =========================================================================================================
+# 1. CASE IDENTIFICATION AND TAGS
+# =========================================================================================================
+# One run executes one case for every combination of ProductTAG x VLTAG x FspTAG (section 2). Each
+# case writes to data_out/<run folder>/<network>_<ModelTAG>_<product>_<VL>_<F>_<StorageTag>_<tag>/.
+
+# Short name of this run. It ends the name of every output folder
+# (data_out/<network>_<ModelTAG>_<StorageTag>_<simulation_tag>) and of the cached sensitivity
+# files, so two runs on the same network never share results or sensitivity matrices.
+# Values: text, for example 'scen1'; '' means no tag.
+# Without it the run uses the file name without 'config_'.
+# Tip: 'L120' marks the load factor 1.2; give every load factor its own tag, here
+# data_out/CIGRE_CMVC_SK01_L120. Keep the tag short, because the tag is repeated in the folder and
+# in every file name and Windows limits a full path to 260 characters.
+simulation_tag: 'L120'
+
+# Which network services the flexibility market procures. Also part of every output folder name.
+# Values: 'CMVC' = CM and VC together, 'CM' = congestion only, 'VC' = voltage only.
+# Required.
+ModelTAG: 'CMVC'
+
+# Market products to run. Each product is a separate set of cases.
+# Values: list of 'P' (active power), 'Q' (reactive power), 'PQ' (both in one market).
+# Required.
+# Tip: FSP files exist for all three products; ['P', 'Q', 'PQ'] runs them in one call.
+ProductTAG: ['PQ']
+
+# Voltage limit sets to run (the allowed band for every monitored bus). Each set is a separate
+# set of cases.
+# Values: list of 'VL01' 0.95-1.05 pu, 'VL02' 0.93-1.07, 'VL03' 0.90-1.10, 'VL04' 0.91-1.09, 'VL05' 0.97-1.03,
+#   'VL06' 0.98-1.02.
+# Required.
+VLTAG: ['VL01']
+
+# =========================================================================================================
+# 2. FLEXIBILITY MARKET AND BIDS
+# =========================================================================================================
+# The DSO procures flexibility from the FSPs of the FSP files (section 3). Bid depth and battery size
+# determine the volume each FSP offers.
+
+# Bid depth: how much of its flexibility each FSP offers. F0k multiplies the up and down fractions of
+# the FSP file (columns Pup, Pdown, Qup, Qdown) by k, so F01, F02 and F03 offer 1, 2 and 3 times that
+# fraction. Each bid depth is a separate case.
+# Values: list of 'F01', 'F02', 'F03' (the platform studies at most three bid depths).
+# Required.
+# Tip: the fractions of the CIGRE FSP files are 5 %, so F01, F02 and F03 offer 5, 10 and 15 %.
+FspTAG: ['F01', 'F02', 'F03']
+
+# Size multiplier of the batteries offered as FSPs: 'SKn' multiplies their power rating (MVA) by n.
+# Also part of every output folder name.
+# Values: 'SK01' (as in the FSP file), 'SK02' (double), ...; '' = batteries submit no bids.
+# Required.
+StorageTag: 'SK01'
+
+# True includes the network constraints (sensitivities) in the aggregator model when it builds
+# its bid. False: the aggregator bids without network information.
+# Values: True or False.
+# Required.
+# Tip: no FSP of this case belongs to an aggregator, so the value has no effect here.
+net_cstr_aggr: False
+
+# =========================================================================================================
+# 3. NETWORK AND INPUT FILES
+# =========================================================================================================
+# Every input file lives in data_in/<net_folder>/: network/, profile/ and fsp_files/.
+
+# Where the network, profile and FSP data of this case are. Every file below is read from
+# data_in/<net_folder>/ (subfolders network/, profile/ and fsp_files/).
+# Values: the mapping below.
+# Required.
+network:
+
+    # Folder inside data_in that holds the input data of this network. Also the first part of every
+    # output folder name.
+    # Values: name of a folder in data_in.
+    # Required.
+    net_folder: 'CIGRE'
+
+    # Network model in pandapower Excel format, read from data_in/<net_folder>/network/.
+    # Values: file name ending in .xlsx (no other format is accepted).
+    # Required.
+    net_filename: 'cigre_mv_der_all.xlsx'
+
+    # Time-series profiles per element type (load, sgen = static generator, storage, gen) and power
+    # (p = active, q = reactive), read from profile/. Each element row of the network file names its type:
+    # denorm = values in MW / MVAr, norm = multipliers of the element's power, internal = model inputs.
+    # Values: file names (.xlsx whose only sheet is named like the file, or .csv); one row per time step.
+    # Required. A profile type is read only if an element of the network file uses it.
+    # Tip: here the loads use norm profiles (columns residential and commercial) and the static
+    # generators and batteries use denorm profiles (one column per element).
+    profile:
+        # Loads.
+        load:
+            p:
+                norm: 'profile_df_load_p.xlsx'
+            q:
+                norm: 'profile_df_load_q.xlsx'
+        # Static generators (sgen), e.g. PV and wind.
+        sgen:
+            p:
+                denorm: 'profile_df_sgen_p.xlsx'
+            q:
+                denorm: 'profile_df_sgen_q.xlsx'
+        # Storage units.
+        storage:
+            p:
+                denorm: 'profile_df_storage_p.xlsx'
+            q:
+                denorm: 'profile_df_storage_q.xlsx'
+
+    # Extra profile models for elements with an 'internal' profile: element name (column element_name
+    # of the network file) -> Python module in enginiite/market/models (file name without .py).
+    # Values: a mapping, or null when only the built-in models are used.
+    # Required (write null when it is not used).
+    profile_models: null
+
+    # Voltage set-point of the external grid (the upstream supply, e.g. the high-voltage side of the
+    # substation) for every time step, in pu. It sets the supply voltage of each time step in the pre-market
+    # power flow, in the sensitivity matrices of that time step and in every post-clearing AC power-flow
+    # validation, so a scenario with a high or low upstream voltage is simulated as such. The file is read
+    # from profile/, with one row per time step (as the other profiles) and one column per ext_grid index.
+    # Depends on: after changing it, rebuild the sensitivity matrices (force_HVM and force_HCM True).
+    # Values: file name (.xlsx or .csv) holding values between 0.8 and 1.2 pu, or null.
+    # Default if omitted: null (the set-point stored in the network file is used at every time step).
+    # Tip: null here: the set-point of the network file, 1.03 pu, holds in every hour.
+    ext_grid_profile: null
+
+    # File type of the power-flow time-series results written to data_out.
+    # Values: '.csv' or '.xlsx'.
+    # Required.
+    ts_output_file_type: '.csv'
+
+    # The FSP data: which resources offer flexibility, at which bus, in which volume and at which price.
+    # Values: the mapping below.
+    # Required.
+    fsp:
+
+        # FSP workbook per market product, read from data_in/<net_folder>/fsp_files/ (a subfolder may be
+        # part of the name). Every listed file is read, and every product of ProductTAG needs an entry.
+        # All listed files must contain the same FSP types.
+        # Values: mapping P / Q / PQ -> .xlsx file; one file may serve several products.
+        # Required.
+        fsp_input_filename:
+            P: 'FSP_data_CIGRE_P.xlsx'
+            Q: 'FSP_data_CIGRE_Q.xlsx'
+            PQ: 'FSP_data_CIGRE_PQ.xlsx'
+
+        # Sheet of the FSP workbooks that holds the data (the column names are on its second row).
+        # Values: sheet name.
+        # Required.
+        fsp_sheetname: 'fsp_data'
+
+        # Extra parameter files for some FSP types: FSP type -> file in fsp_files/.
+        # Values: a mapping, or null when no FSP type needs one.
+        # Required (write null when it is not used).
+        fsp_additional_filename: null
+
+    # Extra FSP models: FSP type (column 'type' of the FSP file) -> Python module in
+    # enginiite/market/models (no .py). Only for types the platform does not know already.
+    # Values: a mapping, or null when only the built-in models are used.
+    # Required (write null when it is not used).
+    fsp_models: null
+
+# =========================================================================================================
+# 4. SIMULATION WINDOW AND SNAPSHOTS
+# =========================================================================================================
+# Which time steps are simulated, how they relate to each other and how the profiles are scaled.
+
+# Rows (time steps) of the profile files to simulate: [first, last + 1], counted from 0.
+# With simulation_window_as_timesteps True the rows are consecutive hours of one scenario (labelled
+# h<first>, ...); with False every row is an independent scenario (labelled S1, S2, ... from the first row).
+# Values: two whole numbers, e.g. [0, 24] = the first 24 rows; [0, 8760] = one year of hourly rows.
+# Required.
+# Tip: [0, 24] here: the whole day, h0 ... h23.
+simulation_window: [0, 24]
+
+# Independent scenarios or consecutive time steps: the next three settings work together and must agree.
+#   Independent scenarios:   simulation_window_as_timesteps False, consecutive_hours 1, intertemp_cons False.
+#   Consecutive time steps:  simulation_window_as_timesteps True, consecutive_hours 1 or more,
+#                            intertemp_cons True or False.
+
+# What the rows of simulation_window are. True: consecutive time steps of one scenario, labelled h0,
+# h1, ...; all hours share one set of monitored branches and buses, and the corrective iteration re-clears
+# every hour. False: independent scenarios studied together only for comparison, labelled S1, S2, ...;
+# each scenario monitors only its own elements outside the operational limits, a corrective iteration
+# re-clears only the scenarios still violated, and every index stays inside one scenario. False needs
+# consecutive_hours 1 and intertemp_cons False.
+# Values: True or False.
+# Default if omitted: True.
+# Tip: True here: the 24 rows are the consecutive hours of one day.
+simulation_window_as_timesteps: True
+
+# How many time steps are cleared together in one optimisation problem. The studied time steps are
+# split into blocks of this size; each block is one problem in the main market and again in every
+# corrective iteration (problems per clearing = studied time steps / consecutive_hours, rounded up).
+# Depends on: it must be 1 when simulation_window_as_timesteps is False (one problem per scenario);
+# a value equal to the number of studied time steps gives one problem for the whole window.
+# Values: whole number >= 1.
+# Required.
+# Tip: 24 here: one problem for the whole day in the main market and in every corrective iteration.
+consecutive_hours: 24
+
+# True links consecutive time steps for resources with memory (battery state of charge, heat
+# pumps): what one hour does limits the next. False treats every time step on its own.
+# Depends on: it links only the hours inside one optimisation problem (one block of consecutive_hours),
+# and it must be False when simulation_window_as_timesteps is False (independent scenarios).
+# Values: True or False.
+# Required.
+# Tip: False here: the battery offers are small (k x 5 % of 0.6 and 0.2 MVA); True carries their state
+# of charge from one hour to the next.
+intertemp_cons: False
+
+# Intended to clear only the most severe hour. In the current code True takes effect only together
+# with intertemp_cons True: the market then clears only the hours with a voltage or congestion
+# violation instead of the whole window. Otherwise every hour with a violation is cleared.
+# Values: True or False.
+# Required.
+only_worst_hour: False
+
+# Multiplier applied to every load profile, to scale the scenario. 1 keeps the profiles unchanged.
+# Values: number >= 0 (e.g. 1.2 = 20 % more load).
+# Required.
+# Tip: 1.2 here: with 1 the day has no violation of the VL01 operational limits (see About this case).
+# The load FSPs scale with it, because their rating is multiplied by the same factor.
+scen_factor_load: 1.2
+
+# Multiplier applied to every static generator (sgen) profile, e.g. PV and wind.
+# Values: number >= 0; 1 keeps the profiles unchanged.
+# Required.
+scen_factor_sgen: 1
+
+# Multiplier applied to every synchronous generator (gen) profile.
+# Values: number >= 0; 1 keeps the profiles unchanged.
+# Required.
+scen_factor_gen: 1
+
+# Multiplier applied to every storage profile and to the battery power that FSPs offer.
+# Values: number >= 0; 1 keeps the profiles unchanged.
+# Required.
+scen_factor_storage: 1
+
+# True recomputes the pre-market power-flow time series even if results of an earlier run exist.
+# Values: True or False.
+# Required.
+# Tip: keep True unless the inputs are unchanged and the run must be faster.
+timeseries_force_1st_calculation: True
+
+# Grid frequency in Hz. Informative only: the current code does not read this key.
+# Values: 50 or 60.
+# Default if omitted: no effect (the key is not read).
+f_hz: 50
+
+# Power-flow method. Informative only: the current code does not read this key and always uses
+# the pandapower default, Newton-Raphson.
+# Values: 'nr' (Newton-Raphson) or 'bfsw' (backward/forward sweep).
+# Default if omitted: no effect (the key is not read).
+par_pf_algo: 'nr'
+
+# =========================================================================================================
+# 5. OPERATIONAL LIMITS AND OPTIMISATION TARGETS
+# =========================================================================================================
+# Operational limits define what counts as a violation (detection; also used by the post-clearing AC
+# power-flow validation). Optimisation targets are the slightly tighter limits to which the market
+# clears. All tolerances are percentages: 1 means 1 %. The monitored buses and branches are also set here.
+
+# Detection margin for voltage, in percent. A bus is in voltage violation when it lies outside the
+# VLTAG band narrowed by this margin: [Vmin x (1 + tol_v/100), Vmax x (1 - tol_v/100)].
+# Values: percent >= 0 (1 means 1 %); 0 = the band itself. Example: 2 with VL01 gives 0.969-1.029 pu.
+# Required.
+# Tip: 0 here: detection at the physical 0.95-1.05 pu band.
+tol_v: 0
+
+# Detection margin for branch loading, in percent. A line or transformer is congested above
+# (100 - tol_i) % of its rating. The post-clearing AC power-flow validation uses the same limit.
+# Values: percent >= 0; 0 = the physical 100 % limit.
+# Required.
+# Tip: 0 here: detection at the physical 100 % loading.
+tol_i: 0
+
+# Extra voltage margin of the optimisation target, in percent: the market keeps voltages inside
+# [Vmin x (1 + (tol_v + tol_v_opt)/100), Vmax x (1 - (tol_v + tol_v_opt)/100)].
+# Values: percent >= 0; e.g. 1 with VL01 gives 0.9595-1.0395 pu.
+# Required.
+# Tip: 1 here (target 0.9595-1.0395 pu); check it against the accuracy figures of comparison/technical comparison for this network.
+tol_v_opt: 1
+
+# Extra loading margin of the optimisation target, in percent: the market keeps every monitored
+# branch at or below (100 - tol_i - tol_i_opt) % of its rating.
+# Values: percent >= 0; e.g. 3 gives a 97 % target.
+# Required.
+# Tip: 3 here (target 97 %); check it against the accuracy figures of comparison/technical comparison for this network.
+tol_i_opt: 3
+
+# The market controls voltage at pilot buses: buses with a voltage violation plus the FSP buses.
+# True keeps only the violated buses whose nominal voltage equals vn_kv_mv (the MV level).
+# Values: True or False.
+# Required.
+only_pilot_busMV: True
+
+# Nominal voltage of the MV level in kV, used by only_pilot_busMV and by the corrective iterations.
+# Values: number in kV; it must equal the vn_kv of the MV buses in the network file exactly.
+# Required.
+# Tip: 20 here: buses 1-14 are 20 kV; bus 0 is the 110 kV supply.
+vn_kv_mv: 20
+
+# True puts every bus and every branch into the market as a constraint. False only the pilot
+# buses and the congested branches (lower computational cost).
+# Values: True or False.
+# Required.
+full_network: False
+
+# =========================================================================================================
+# 6. NOT SERVED FLEXIBILITY PENALTIES AND PRICES
+# =========================================================================================================
+# A flexibility need that the FSP bids cannot cover remains as not served flexibility, priced here.
+
+# Price of not served flexibility: the penalty per MWh (or MVArh) of a flexibility need that the
+# FSP bids cannot cover. It is normally set to the VOLL. The KPIs use the same price.
+# Values: EUR/MWh. The examples use 6260.
+# Required.
+# Tip: set it well above every FSP bid price, so procuring FSP flexibility is always preferred.
+BetaCost: 6260
+
+# =========================================================================================================
+# 7. SENSITIVITY CALCULATION
+# =========================================================================================================
+# The market uses linear sensitivities (HVM for voltages, HCM for branch flows) built with small
+# power-flow perturbations. They are cached in data_in/<net_folder>/market_inputs/.
+
+# True rebuilds the HVM (how each bus voltage reacts to each FSP's P and Q) even when cached
+# files exist in data_in/<net_folder>/market_inputs/h24SensitivityMatrixes/.
+# Depends on: with False, cached files named by simulation_tag are reused even if the network, the
+# profiles, ext_grid_profile or the FSP data changed; use True (or a new simulation_tag) after such a change.
+# Values: True or False.
+# Default if omitted: False (complete cached matrices are reused).
+# Tip: True here: the matrices are always recomputed, so no cached file of earlier inputs is reused.
+force_HVM: True
+
+# True rebuilds the HCM (how each branch flow reacts to each FSP's P and Q) even when cached
+# files exist. Depends on: the same caching rule as force_HVM; also set True after changing
+# cm_sensitivity_basis, because the cached files do not record the basis.
+# Values: True or False.
+# Default if omitted: False (complete cached matrices are reused).
+# Tip: True here, for the same reason as force_HVM.
+force_HCM: True
+
+# True also writes the inverse Jacobian matrices of the power flow. For diagnostics only; the
+# market does not use them.
+# Values: True or False.
+# Default if omitted: False.
+save_inverse_jacobian: False
+
+# Branch-flow quantity of the HCM. 'current': branch current expressed in MVA (sqrt(3) x nominal
+# voltage x current), the quantity on which branch loading and the post-clearing AC power-flow
+# validation are based. 'apparent_power': sqrt(P^2 + Q^2) at the branch ends, independent of voltage.
+# Depends on: set force_HCM True when changing it, so that no matrix of the other basis is reused.
+# Values: 'current' or 'apparent_power'.
+# Default if omitted: 'apparent_power'.
+# Tip: 'current' here: the loading limit is a current limit, and the under-voltages raise the current.
+cm_sensitivity_basis: 'current'
+
+# =========================================================================================================
+# 8. CORRECTIVE ITERATIONS AND POST-CLEARING AC POWER-FLOW VALIDATION
+# =========================================================================================================
+# After the main market the dispatch is checked by the post-clearing AC power-flow validation. Remaining
+# violations of the operational limits can be removed by corrective market iterations. Each iteration is
+# priced incrementally: it pays only for its own correction, and every FSP is settled once, on its final
+# net position.
+
+# True runs the post-clearing AC power-flow validation: the market dispatch is applied to the full
+# nonlinear power flow and every bus and branch is checked against the operational limits.
+# Values: True or False.
+# Default if omitted: True. False also switches every corrective iteration off.
+# Tip: an hour is secure when every MV bus is in 0.95-1.05 pu and every branch <= 100 %.
+ac_validate_post_market: True
+
+# Maximum number of corrective iterations after the main market. An iteration runs only while the
+# post-clearing AC power-flow validation still finds a violation: the sensitivities are recomputed
+# at the post-market operating point and the market clears again with the remaining FSP capacity.
+# Each iteration is priced incrementally: it procures the economically efficient correction of the
+# remaining violation, and every FSP is settled once, on its final net position.
+# Depends on: ac_validate_post_market must be True. With simulation_window_as_timesteps False only the
+# scenarios still violated are cleared again; with True every hour is. The matrices of iteration k are
+# written to <case>/market_inputs/<ac_validation_sensitivity_subfolder>/<simulation_tag>/iteration_kk.
+# Values: whole number >= 0; 0 = validation only (violations are reported, nothing is corrected).
+# Default if omitted: 0.
+# Tip: 1 here: it corrects the linearisation error; remaining violations reflect insufficient FSP capacity.
+max_corrective_market_running: 1
+
+# Folder name, inside <case>/market_inputs/, for the sensitivity matrices of the corrective
+# iterations: <this folder>/<simulation_tag>/iteration_01 ... iteration_K (K = max_corrective_market_
+# running). Folder k holds the matrices that corrective iteration k was cleared with, computed at the AC
+# operating point left by the previous clearing; every folder is deleted and rebuilt at each run. The last
+# folder holds the latest matrices; none are computed at the final dispatch, because nothing is cleared
+# after it. A copy is archived in <case>/ACCorrectionStages/stage_kk_corrective/sensitivity_matrices/.
+# With independent scenarios a folder holds only the scenarios cleared again in that iteration.
+# Values: folder name.
+# Default if omitted: 'ACOperatingPointSensitivity'.
+ac_validation_sensitivity_subfolder: 'ACOperatingPointSensitivity'
+
+# =========================================================================================================
+# 9. SOLVER
+# =========================================================================================================
+# Settings of the Gurobi optimiser. Each one applies to every single market solve.
+
+# The market is a MIP solved by Gurobi. Each solve terminates when the relative optimality gap
+# between the incumbent (best feasible) solution and the best bound falls below this value.
+# Depends on: it applies to every solve separately (see time_limit for the number of solves).
+# Values: positive number; 0.001 = 0.1 % (shorter solves), 0.0001 (tighter), 0.00001 (near-proven optimum).
+# Default if omitted: 0.00001 for CMVC and CM, 0.000001 for VC.
+# Tip: 0.0001 here, as in the SB72 study.
+mip_gap: 0.0001
+
+# Gurobi search emphasis: 0 balanced, 1 finding feasible solutions, 2 proving optimality,
+# 3 improving the best bound.
+# Values: 0, 1, 2 or 3.
+# Default if omitted: 2.
+mip_focus: 2
+
+# Wall-clock limit of ONE optimisation problem (one solve), in seconds, not of the whole run. A solve
+# that reaches it returns its incumbent solution; this is reported on the console and in GReports/.
+# Depends on: the number of solves follows consecutive_hours, simulation_window_as_timesteps and
+# max_corrective_market_running: one solve per block of consecutive_hours time steps in the main market,
+# plus one per block (or per still-violated scenario) in every corrective iteration. One problem covers
+# the whole window only when consecutive_hours equals the number of studied time steps; twelve
+# independent scenarios (consecutive_hours 1) give twelve solves per market clearing.
+# Values: seconds, or null for no limit.
+# Default if omitted: null (no limit).
+# Tip: 600 here: a safeguard only; with consecutive_hours 24 each market clearing is a single solve.
+time_limit: 600
+
+# Number of processor threads Gurobi may use in each solve. Runs started in parallel share the
+# processor, so their threads add up.
+# Values: whole number >= 1, or null.
+# Default if omitted: null (Gurobi decides, normally every core).
+# Tip: null here (one run at a time); set a number when several runs share the machine.
+threads: null
+
+# True also prints Gurobi's progress table on the console. The log file is always written.
+# Values: True or False.
+# Default if omitted: False.
+solver_log_to_console: False
+
+# =========================================================================================================
+# 10. OUTPUTS AND VISUALIZATION
+# =========================================================================================================
+# What is written to data_out besides the standard results, and which figures are drawn.
+
+# Each case folder shows the final market (after the last corrective iteration). True also keeps
+# the main (first) market there as CSV files in <case>/main_market_results/, for comparison.
+# Depends on: it matters only when a corrective iteration runs (max_corrective_market_running >= 1).
+# Values: True or False.
+# Default if omitted: True.
+save_main_market_csv: True
+
+# Informative only: the current code does not read this key.
+# Values: True or False.
+# Default if omitted: no effect (the key is not read).
+debug_pf_res_to_excel: False
+
+# True writes the voltage of every bus at every studied hour to VPilotBus_FULLH_FULLBUS.csv in the
+# market_inputs folder of each case (a check file for the choice of pilot buses).
+# Values: True or False.
+# Required.
+debug_save_VPilotBus_FULLH: False
+
+# Figure settings. The pages of part 10a are always drawn; the switches below choose the
+# optional figure families. the run reads this block in one place (_visualization_plan).
+# Values: the mapping below.
+# Default if omitted: no optional figures (every switch takes its own default).
+visualization:
+
+    # -----------------------------------------------------------------------------------------------------
+    # 10a. Always produced (no switch)
+    # -----------------------------------------------------------------------------------------------------
+    # Every case produces, for its final market clearing:
+    #   visualization/network_topology/             interactive base topology and one pre-/post-market
+    #                                                comparison page with a slider over the time steps
+    #   visualization/network_technical_analytics/  voltage and congestion heat maps, cleared flexibility,
+    #                                                storage dashboard, not served flexibility diagnostics
+    #   visualization/showcase/                     storage state of charge, congestion by asset and
+    #                                                voltage by bus
+    #   comparison/technical comparison/            the scenarios of the study side by side
+
+    # -----------------------------------------------------------------------------------------------------
+    # 10b. Topology pages: presentation
+    # -----------------------------------------------------------------------------------------------------
+
+    # Time step for the pre-/post-market power-flow pages (row label of the profiles, e.g. 7 = hour 7).
+    # The comparison page has a slider over every studied time step and uses this value only when
+    # no studied time step is found.
+    # Values: whole number inside simulation_window.
+    # Default if omitted: 0.
+    # Tip: 19 here: the evening peak, the most severe hour of the day.
+    interactive_pf_hour: 19
+
+    # True marks the FSPs on the topology pages.
+    # Values: True or False.
+    # Default if omitted: True.
+    plot_fsp_resources: True
+
+    # FSP labels on the static topology: 'compact' short A/B/C labels, 'full' full FSP names (may
+    # overlap), 'none' no labels. Note: the current topology code draws HTML pages only, so it has no effect.
+    # Values: 'compact', 'full' or 'none'.
+    # Default if omitted: 'compact'.
+    topology_label_mode: 'compact'
+
+    # True writes the bus numbers on the static topology. Note: no effect while the topology code draws
+    # HTML pages only.
+    # Values: True or False.
+    # Default if omitted: True.
+    show_bus_labels: True
+
+    # True adds a table of the FSPs next to the static topology. Note: no effect while the topology
+    # code draws HTML pages only.
+    # Values: True or False.
+    # Default if omitted: False.
+    show_resource_table: False
+
+    # Save the static topology as PNG. Note: no effect while the topology code draws HTML pages only.
+    # Values: True or False.
+    # Default if omitted: True.
+    save_png: True
+
+    # Save the static topology as PDF. Note: no effect while the topology code draws HTML pages only.
+    # Values: True or False.
+    # Default if omitted: True.
+    save_pdf: True
+
+    # Save the static topology as SVG. Note: no effect while the topology code draws HTML pages only.
+    # Values: True or False.
+    # Default if omitted: False.
+    save_svg: True
+
+    # -----------------------------------------------------------------------------------------------------
+    # 10c. Other figure families: one switch per family
+    # -----------------------------------------------------------------------------------------------------
+
+    # Network consistency audit and the cross-case KPI consistency check (folder ConsistencyCheck).
+    # Values: True or False.
+    # Default if omitted: False.
+    consistency_checks: True
+
+    # KPI figures of the run. The KPI workbook itself is always written.
+    # Values: True or False.
+    # Default if omitted: False.
+    kpi_plots: True
