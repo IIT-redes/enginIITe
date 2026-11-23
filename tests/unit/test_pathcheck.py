@@ -96,9 +96,9 @@ class ProbePathTests(unittest.TestCase):
                 self.assertEqual(len(pathcheck.probe_path(probe_dir, length)), length)
 
     def test_no_component_of_the_probe_path_exceeds_the_limit_of_a_name(self):
-        probe_dir = 'C:\\some\\folder\\.path_probe'
+        probe_dir = os.path.join('some', 'folder', '.path_probe')
         for length in (300, 700, 1200):
-            parts = pathcheck.probe_path(probe_dir, length)[len(probe_dir) + 1:].split('\\')
+            parts = pathcheck.probe_path(probe_dir, length)[len(probe_dir) + 1:].split(os.sep)
             self.assertTrue(all(0 < len(part) <= 255 for part in parts), length)
 
 
